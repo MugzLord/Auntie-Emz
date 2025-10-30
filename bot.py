@@ -110,7 +110,7 @@ async def on_message(message: discord.Message):
     if not B4B_CHANNEL_ID or message.channel.id != B4B_CHANNEL_ID:
         return
 
-    # Links-only moderation
+    # links-only
     if LINKS_ONLY and not URL_RE.search(message.content or ""):
         with contextlib.suppress(Exception):
             await message.delete()
@@ -124,7 +124,7 @@ async def on_message(message: discord.Message):
 
     parent: discord.TextChannel = message.channel  # type: ignore
 
-    # Reuse or create the user's dedicated thread
+    # get/create user thread
     thr = await get_or_fetch_user_thread(message.guild, message.author.id)
     if thr and thr.parent_id == parent.id and not thr.locked:
         if thr.archived:
@@ -139,7 +139,7 @@ async def on_message(message: discord.Message):
         )
         await set_user_thread(message.guild, message.author.id, thr.id)
 
-    # Repost content + attachments in the THREAD
+    # send in thread
     files = []
     for att in message.attachments:
         with contextlib.suppress(Exception):
@@ -150,25 +150,25 @@ async def on_message(message: discord.Message):
         await thr.send(f"{message.author.mention}\n{content}", files=files or None)
         await thr.send("↖️ Keep all updates and chat **in this thread**. Parent channel stays link-only.")
 
-    # ✅ NEW: drop a tidy embed in the PARENT so people see who posted
+    # ✅ delete the original user msg FIRST so it's gone from parent
+    with contextlib.suppress(Exception):
+        await message.delete()
+
+    # ✅ NOW post our own pretty embed in parent
     try:
-        # grab first link from message for the embed
-        m = URL_RE.search(message.content or "")
-        link_txt = m.group(1) if m else "Routed to thread →"
+        m = URL_RE.search(content)
+        link_txt = m.group(1) if m else "Posted a new promo → see thread below."
         emb = discord.Embed(
-            title=f"{message.author.display_name}",
-            description=f"[Open their thread]({thr.jump_url})\n{link_txt}",
+            title=f"🪄 {message.author.display_name}",
+            description=f"[Open {message.author.display_name}'s thread]({thr.jump_url})",
             colour=discord.Colour.magenta()
         )
-        if message.author.display_avatar:
-            emb.set_thumbnail(url=message.author.display_avatar.url)
+        avatar_url = getattr(message.author.display_avatar, "url", None)
+        if avatar_url:
+            emb.set_thumbnail(url=avatar_url)
         await parent.send(embed=emb)
     except Exception:
         pass
-
-    # delete original message to keep parent clean
-    with contextlib.suppress(Exception):
-        await message.delete()
 
     await log(message.guild, f"Routed post by {message.author.mention} to thread {thr.mention}")
 
