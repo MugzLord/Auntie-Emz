@@ -139,7 +139,7 @@ async def on_message(message: discord.Message):
         )
         await set_user_thread(message.guild, message.author.id, thr.id)
 
-    # Repost content + attachments
+    # Repost content + attachments in the THREAD
     files = []
     for att in message.attachments:
         with contextlib.suppress(Exception):
@@ -150,10 +150,28 @@ async def on_message(message: discord.Message):
         await thr.send(f"{message.author.mention}\n{content}", files=files or None)
         await thr.send("↖️ Keep all updates and chat **in this thread**. Parent channel stays link-only.")
 
+    # ✅ NEW: drop a tidy embed in the PARENT so people see who posted
+    try:
+        # grab first link from message for the embed
+        m = URL_RE.search(message.content or "")
+        link_txt = m.group(1) if m else "Routed to thread →"
+        emb = discord.Embed(
+            title=f"{message.author.display_name}",
+            description=f"[Open their thread]({thr.jump_url})\n{link_txt}",
+            colour=discord.Colour.magenta()
+        )
+        if message.author.display_avatar:
+            emb.set_thumbnail(url=message.author.display_avatar.url)
+        await parent.send(embed=emb)
+    except Exception:
+        pass
+
+    # delete original message to keep parent clean
     with contextlib.suppress(Exception):
         await message.delete()
 
     await log(message.guild, f"Routed post by {message.author.mention} to thread {thr.mention}")
+
 
 # ---------------- Commands ----------------
 @bot.tree.command(name="b4b_status", description="Show configuration")
