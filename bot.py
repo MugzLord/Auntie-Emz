@@ -105,15 +105,20 @@ async def on_ready():
 
 @bot.event
 async def on_message(message: discord.Message):
+    # ignore bots / DMs
     if message.author.bot or not message.guild:
         return
+
+    # only watch the B4B channel
     if not B4B_CHANNEL_ID or message.channel.id != B4B_CHANNEL_ID:
         return
 
-    # links-only
+    # ---------------- links-only check ----------------
     if LINKS_ONLY and not URL_RE.search(message.content or ""):
+        # delete the non-link
         with contextlib.suppress(Exception):
             await message.delete()
+        # DM the user
         with contextlib.suppress(Exception):
             await message.author.send(
                 "Hi! The promo channel is **links only**. "
@@ -124,13 +129,15 @@ async def on_message(message: discord.Message):
 
     parent: discord.TextChannel = message.channel  # type: ignore
 
-    # get/create user thread
+    # ---------------- get/create user's dedicated thread ----------------
     thr = await get_or_fetch_user_thread(message.guild, message.author.id)
     if thr and thr.parent_id == parent.id and not thr.locked:
+        # if it exists but is archived, reopen
         if thr.archived:
             with contextlib.suppress(Exception):
                 await thr.edit(archived=False, auto_archive_duration=AUTO_ARCHIVE_MINUTES)
     else:
+        # create new thread for this creator
         name = thread_name_for(message.author, message.content)
         thr = await parent.create_thread(
             name=name,
@@ -139,7 +146,7 @@ async def on_message(message: discord.Message):
         )
         await set_user_thread(message.guild, message.author.id, thr.id)
 
-    # send in thread
+    # ---------------- forward content to thread ----------------
     files = []
     for att in message.attachments:
         with contextlib.suppress(Exception):
@@ -150,28 +157,41 @@ async def on_message(message: discord.Message):
         await thr.send(f"{message.author.mention}\n{content}", files=files or None)
         await thr.send("↖️ Keep all updates and chat **in this thread**. Parent channel stays link-only.")
 
-    # ✅ delete the original user msg FIRST so it's gone from parent
+    # ---------------- delete original to keep parent clean ----------------
     with contextlib.suppress(Exception):
         await message.delete()
 
-    # ✅ NOW post our own pretty embed in parent
+    # ---------------- post tidy card in parent ----------------
     try:
+        # first link from message (IMVU link usually)
         m = URL_RE.search(content)
-        link_txt = m.group(1) if m else "Posted a new promo → see thread below."
-        emb = discord.Embed(
-            title=f"🪄 {message.author.display_name}",
-            description=f"[Open {message.author.display_name}'s thread]({thr.jump_url})",
-            colour=discord.Colour.magenta()
-        )
+        link_url = m.group(1) if m else None
+
+        display_name = message.author.display_name
+        shop_label = f"Shop {display_name}"
+
+        emb = discord.Embed(colour=discord.Colour.magenta())
+        emb.title = display_name  # e.g. "Mike 😤"
+
+        if link_url:
+            emb.description = (
+                f"[{shop_label}]({link_url})\n"
+                f"[→ chat in their thread]({thr.jump_url})"
+            )
+        else:
+            # fallback if somehow no link
+            emb.description = f"[→ chat in their thread]({thr.jump_url})"
+
         avatar_url = getattr(message.author.display_avatar, "url", None)
         if avatar_url:
             emb.set_thumbnail(url=avatar_url)
+
         await parent.send(embed=emb)
     except Exception:
         pass
 
+    # ---------------- log ----------------
     await log(message.guild, f"Routed post by {message.author.mention} to thread {thr.mention}")
-
 
 # ---------------- Commands ----------------
 @bot.tree.command(name="b4b_status", description="Show configuration")
