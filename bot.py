@@ -30,7 +30,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise RuntimeError("OPENAI_API_KEY env var not set")
 
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL") or "gpt-4.1-mini"
 
 # Optional: the TRUE Oreo user ID (int) and Emz (Blossem) user ID
 OREO_USER_ID_ENV = os.getenv("OREO_USER_ID", "").strip()
@@ -165,7 +165,7 @@ async def generate_auntie_emz_reply(
     """
     Call the model with Auntie Emz's persona and return her reply as plain text.
     We pass explicit flags so she knows if this is the real Oreo or real Emz.
-    Includes a small retry on transient server errors.
+    Includes a small retry on transient server errors and a light fallback.
     """
     user_context = (
         f"Sender display name: {author_display}\n"
@@ -176,8 +176,9 @@ async def generate_auntie_emz_reply(
     )
 
     def _call():
-        # Try up to 3 times on InternalServerError
         last_error = None
+
+        # Try up to 3 times on InternalServerError
         for attempt in range(3):
             try:
                 response = client_oa.responses.create(
@@ -190,6 +191,7 @@ async def generate_auntie_emz_reply(
                 text = getattr(response, "output_text", None)
                 if text:
                     return text.strip()
+
                 try:
                     return response.output[0].content[0].text.strip()
                 except Exception:
@@ -197,9 +199,18 @@ async def generate_auntie_emz_reply(
             except InternalServerError as e:
                 # transient 500 – remember and retry
                 last_error = e
-                log.warning("OpenAI 500 server_error, attempt %d/3", attempt + 1)
+                log.warning(
+                    "OpenAI 500 server_error for Auntie Emz, attempt %d/3",
+                    attempt + 1,
+                )
                 continue
-        # if we get here, all attempts failed
+            except Exception as e:
+                # Any other error – log and break
+                last_error = e
+                log.error("OpenAI error for Auntie Emz: %r", e)
+                break
+
+        # If we got here, all attempts failed
         log.error("OpenAI failed after retries: %r", last_error)
         return "Sorry, love, I’m a bit overwhelmed right now. Try again in a little while."
 
