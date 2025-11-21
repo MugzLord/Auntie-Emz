@@ -30,7 +30,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise RuntimeError("OPENAI_API_KEY env var not set")
 
-OPENAI_MODEL = os.getenv("OPENAI_MODEL") or "gpt-40.1-mini"
+OPENAI_MODEL = os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
 
 # Optional: the TRUE Oreo user ID (int) and Emz (Blossem) user ID
 OREO_USER_ID_ENV = os.getenv("OREO_USER_ID", "").strip()
