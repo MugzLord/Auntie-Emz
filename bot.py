@@ -324,7 +324,7 @@ class AuntieEmzCog(commands.Cog):
 
 async def main():
     async with bot:
-    await bot.add_cog(AuntieEmzCog(bot))
+        await bot.add_cog(AuntieEmzCog(bot))
         await bot.start(DISCORD_TOKEN)
 
 
