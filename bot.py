@@ -163,9 +163,10 @@ async def generate_auntie_emz_reply(
     is_emz: bool,
 ) -> str:
     """
-    Call the model with Auntie Emz's persona and return her reply as plain text.
+    Call the model with Auntie Emz's persona via the chat.completions
+    endpoint and return her reply as plain text.
     We pass explicit flags so she knows if this is the real Oreo or real Emz.
-    Includes a small retry on transient server errors and a light fallback.
+    Includes a small retry on transient errors.
     """
     user_context = (
         f"Sender display name: {author_display}\n"
@@ -178,45 +179,38 @@ async def generate_auntie_emz_reply(
     def _call():
         last_error = None
 
-        # Try up to 3 times on InternalServerError
         for attempt in range(3):
             try:
-                response = client_oa.responses.create(
+                completion = client_oa.chat.completions.create(
                     model=OPENAI_MODEL,
-                    input=[
+                    messages=[
                         {"role": "system", "content": AUNTIE_EMZ_SYSTEM_PROMPT},
                         {"role": "user", "content": user_context},
                     ],
+                    temperature=0.7,
                 )
-                text = getattr(response, "output_text", None)
-                if text:
-                    return text.strip()
-
                 try:
-                    return response.output[0].content[0].text.strip()
-                except Exception:
+                    text = completion.choices[0].message.content or ""
+                except Exception as e:
+                    log.error("Failed to read completion content: %r", e)
                     return "Alright, love, I’m here if you need me."
-            except InternalServerError as e:
-                # transient 500 – remember and retry
+                return text.strip() or "Alright, love, I’m here if you need me."
+            except Exception as e:
                 last_error = e
                 log.warning(
-                    "OpenAI 500 server_error for Auntie Emz, attempt %d/3",
+                    "OpenAI chat.completions error for Auntie Emz, attempt %d/3: %r",
                     attempt + 1,
+                    e,
                 )
-                continue
-            except Exception as e:
-                # Any other error – log and break
-                last_error = e
-                log.error("OpenAI error for Auntie Emz: %r", e)
-                break
+                # brief backoff between retries (in seconds)
+                import time
+                time.sleep(0.4)
 
-        # If we got here, all attempts failed
-        log.error("OpenAI failed after retries: %r", last_error)
+        log.error("OpenAI chat.completions failed after retries: %r", last_error)
         return "Sorry, love, I’m a bit overwhelmed right now. Try again in a little while."
 
     reply_text = await asyncio.to_thread(_call)
     return reply_text
-
 
 # ------------- Discord events & commands -------------
 
