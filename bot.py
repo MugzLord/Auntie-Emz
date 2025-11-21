@@ -8,6 +8,8 @@ from discord.ext import commands
 from discord import app_commands
 
 from openai import OpenAI
+from openai import InternalServerError
+
 
 # ------------- Logging -------------
 
@@ -163,6 +165,7 @@ async def generate_auntie_emz_reply(
     """
     Call the model with Auntie Emz's persona and return her reply as plain text.
     We pass explicit flags so she knows if this is the real Oreo or real Emz.
+    Includes a small retry on transient server errors.
     """
     user_context = (
         f"Sender display name: {author_display}\n"
@@ -173,20 +176,32 @@ async def generate_auntie_emz_reply(
     )
 
     def _call():
-        response = client_oa.responses.create(
-            model=OPENAI_MODEL,
-            input=[
-                {"role": "system", "content": AUNTIE_EMZ_SYSTEM_PROMPT},
-                {"role": "user", "content": user_context},
-            ],
-        )
-        text = getattr(response, "output_text", None)
-        if text:
-            return text.strip()
-        try:
-            return response.output[0].content[0].text.strip()
-        except Exception:
-            return "Sorry, love, I’m a bit tangled up. Please try again in a moment."
+        # Try up to 3 times on InternalServerError
+        last_error = None
+        for attempt in range(3):
+            try:
+                response = client_oa.responses.create(
+                    model=OPENAI_MODEL,
+                    input=[
+                        {"role": "system", "content": AUNTIE_EMZ_SYSTEM_PROMPT},
+                        {"role": "user", "content": user_context},
+                    ],
+                )
+                text = getattr(response, "output_text", None)
+                if text:
+                    return text.strip()
+                try:
+                    return response.output[0].content[0].text.strip()
+                except Exception:
+                    return "Alright, love, I’m here if you need me."
+            except InternalServerError as e:
+                # transient 500 – remember and retry
+                last_error = e
+                log.warning("OpenAI 500 server_error, attempt %d/3", attempt + 1)
+                continue
+        # if we get here, all attempts failed
+        log.error("OpenAI failed after retries: %r", last_error)
+        return "Sorry, love, I’m a bit overwhelmed right now. Try again in a little while."
 
     reply_text = await asyncio.to_thread(_call)
     return reply_text
