@@ -10,11 +10,13 @@ from discord import app_commands
 from openai import OpenAI
 
 # ------------- Logging -------------
+
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s] [%(levelname)s] %(name)s: %(message)s",
 )
 log = logging.getLogger("auntie-emz")
+
 
 # ------------- Env & Config -------------
 
@@ -29,7 +31,6 @@ if not OPENAI_API_KEY:
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
 
 # Optional: the TRUE Oreo user ID (int) and Emz (Blossem) user ID
-# Only these exact IDs will be treated specially.
 OREO_USER_ID_ENV = os.getenv("OREO_USER_ID", "").strip()
 EMZ_USER_ID_ENV = os.getenv("EMZ_USER_ID", "").strip()
 
@@ -63,9 +64,11 @@ if HELP_CHANNEL_IDS_ENV:
             except ValueError:
                 log.warning("Invalid channel ID in HELP_CHANNEL_IDS: %r", part)
 
+
 # ------------- OpenAI client -------------
 
 client_oa = OpenAI(api_key=OPENAI_API_KEY)
+
 
 # ------------- Discord intents & bot -------------
 
@@ -79,6 +82,7 @@ bot = commands.Bot(
     intents=intents,
     help_command=None,
 )
+
 
 # ------------- Personality: Auntie Emz -------------
 
@@ -176,21 +180,14 @@ async def generate_auntie_emz_reply(
                 {"role": "user", "content": user_context},
             ],
         )
-        # Prefer output_text if available
         text = getattr(response, "output_text", None)
         if text:
             return text.strip()
-        # Fallback to first text block if needed
         try:
-            return (
-                response.output[0]
-                .content[0]
-                .text.strip()
-            )
+            return response.output[0].content[0].text.strip()
         except Exception:
             return "Sorry, love, I’m a bit tangled up. Please try again in a moment."
 
-    # Run the blocking HTTP call in a thread
     reply_text = await asyncio.to_thread(_call)
     return reply_text
 
@@ -199,7 +196,7 @@ async def generate_auntie_emz_reply(
 
 @bot.event
 async def on_ready():
-    log.info("Logged in as %s (%s)", bot.user, bot.user.id if bot.user else "unknown")
+    log.info("Auntie Emz is logged in as %s (%s)", bot.user, bot.user.id if bot.user else "unknown")
     try:
         synced = await bot.tree.sync()
         log.info("Synced %d app commands.", len(synced))
@@ -237,7 +234,6 @@ def _flags_for_user(user: discord.abc.User) -> tuple[bool, bool]:
 
 @bot.event
 async def on_message(message: discord.Message):
-    # Always let commands be processed
     await bot.process_commands(message)
 
     if not _should_respond_in_channel(message):
@@ -259,7 +255,6 @@ async def on_message(message: discord.Message):
                 is_oreo=is_oreo,
                 is_emz=is_emz,
             )
-        # Avoid empty replies
         if not reply_text.strip():
             reply_text = "Alright, sweetheart, I’m here if you need me."
         await message.reply(reply_text, mention_author=False)
@@ -329,7 +324,7 @@ class AuntieEmzCog(commands.Cog):
 
 async def main():
     async with bot:
-        await bot.add_cog(AuntieEmzCog(bot))
+    await bot.add_cog(AuntieEmzCog(bot))
         await bot.start(DISCORD_TOKEN)
 
 
