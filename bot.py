@@ -195,14 +195,20 @@ async def generate_auntie_emz_reply(
 # ------------- Discord events & commands -------------
 
 @bot.event
+@bot.event
 async def on_ready():
-    log.info("Auntie Emz is logged in as %s (%s)", bot.user, bot.user.id if bot.user else "unknown")
+    log.info(
+        "Auntie Emz is logged in as %s (%s)",
+        bot.user,
+        bot.user.id if bot.user else "unknown",
+    )
     try:
-        synced = await bot.tree.sync()
-        log.info("Synced %d app commands.", len(synced))
+        # Clear ALL application commands (global)
+        bot.tree.clear_commands(guild=None)
+        await bot.tree.sync()
+        log.info("Cleared all application commands for Auntie Emz.")
     except Exception as e:
-        log.exception("Failed to sync app commands: %s", e)
-
+        log.exception("Failed to clear app commands: %s", e)
 
 def _should_respond_in_channel(message: discord.Message) -> bool:
     """
@@ -268,63 +274,8 @@ async def on_message(message: discord.Message):
         except Exception:
             pass
 
-
-# ------------- Slash commands -------------
-
-class AuntieEmzCog(commands.Cog):
-    def __init__(self, bot_: commands.Bot):
-        self.bot = bot_
-
-    @app_commands.command(
-        name="auntie",
-        description="Talk directly to Auntie Emz for help or a gentle word.",
-    )
-    @app_commands.describe(
-        message="What would you like to ask or share with Auntie Emz?"
-    )
-    async def auntie(
-        self,
-        interaction: discord.Interaction,
-        message: str,
-    ):
-        await interaction.response.defer(thinking=True)
-
-        channel_name = interaction.channel.name if interaction.channel else "unknown"
-        author_display = interaction.user.display_name
-        is_oreo, is_emz = _flags_for_user(interaction.user)
-
-        try:
-            reply_text = await generate_auntie_emz_reply(
-                author_display=author_display,
-                channel_name=channel_name,
-                content=message,
-                is_oreo=is_oreo,
-                is_emz=is_emz,
-            )
-            if not reply_text.strip():
-                reply_text = "I’m here, sweetheart. Try asking me again."
-            await interaction.followup.send(reply_text)
-        except Exception as e:
-            log.exception("Error in /auntie: %s", e)
-            await interaction.followup.send(
-                "Sorry, love, something went a bit sideways. Please try again later.",
-                ephemeral=True,
-            )
-
-    @app_commands.command(
-        name="auntie_ping",
-        description="Check if Auntie Emz is awake.",
-    )
-    async def auntie_ping(self, interaction: discord.Interaction):
-        await interaction.response.send_message(
-            "I’m here, sweetheart. Wide awake and watching. 💁‍♀️",
-            ephemeral=True,
-        )
-
-
 async def main():
     async with bot:
-        await bot.add_cog(AuntieEmzCog(bot))
         await bot.start(DISCORD_TOKEN)
 
 
