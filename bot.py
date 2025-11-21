@@ -10,7 +10,6 @@ from discord import app_commands
 from openai import OpenAI
 
 # ------------- Logging -------------
-
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s] [%(levelname)s] %(name)s: %(message)s",
