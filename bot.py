@@ -66,6 +66,18 @@ if HELP_CHANNEL_IDS_ENV:
             except ValueError:
                 log.warning("Invalid channel ID in HELP_CHANNEL_IDS: %r", part)
 
+# Comma-separated list of user IDs Auntie Emz should always respond to
+# Example: SPECIAL_USER_IDS="111111111111111111,222222222222222222"
+SPECIAL_USER_IDS_ENV = os.getenv("SPECIAL_USER_IDS", "").strip()
+SPECIAL_USER_IDS: List[int] = []
+if SPECIAL_USER_IDS_ENV:
+    for part in SPECIAL_USER_IDS_ENV.split(","):
+        part = part.strip()
+        if part:
+            try:
+                SPECIAL_USER_IDS.append(int(part))
+            except ValueError:
+                log.warning("Invalid user ID in SPECIAL_USER_IDS: %r", part)
 
 # ------------- OpenAI client -------------
 
@@ -247,22 +259,26 @@ def _should_respond_in_channel(message: discord.Message) -> bool:
     """
     Decide if Auntie Emz should respond to this message automatically.
     Triggers:
+    - If the author is in SPECIAL_USER_IDS.
+    - If message contains: 'emz', 'emilia', or 'blossem' (any case).
     - If bot is mentioned.
     - If HELP_CHANNEL_IDS contains the channel.
-    - If message contains: 'emz', 'emilia', or 'blossem' (any case).
     """
     if message.author.bot:
         return False
 
+    # 🔹 1) Always respond to special users (by ID)
+    if SPECIAL_USER_IDS and message.author.id in SPECIAL_USER_IDS:
+        return True
+
     content_lower = (message.content or "").lower()
 
-    # 🔹 NEW: trigger words for auto-reply
+    # 🔹 2) Trigger words for auto-reply
     trigger_words = ["emz", "emilia", "blossem"]
-
     if any(word in content_lower for word in trigger_words):
         return True
 
-    # Existing rules:
+    # 🔹 3) Existing rules
     if bot.user and bot.user.mentioned_in(message):
         return True
 
