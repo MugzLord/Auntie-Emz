@@ -2,6 +2,7 @@ import os
 import asyncio
 import logging
 from typing import List
+import random
 
 import discord
 from discord.ext import commands
@@ -258,8 +259,9 @@ async def on_ready():
 def _should_respond_in_channel(message: discord.Message) -> bool:
     """
     Decide if Auntie Emz should respond to this message automatically.
+
     Triggers:
-    - If the author is in SPECIAL_USER_IDS.
+    - RANDOMLY reply to the real Emz/Blossem (EMZ_USER_ID), about ~40% of her messages.
     - If message contains: 'emz', 'emilia', 'blossem', or 'barrister' (any case).
     - If bot is mentioned.
     - If HELP_CHANNEL_IDS contains the channel.
@@ -267,26 +269,30 @@ def _should_respond_in_channel(message: discord.Message) -> bool:
     if message.author.bot:
         return False
 
-    # 1) Always respond to special users (by ID)
-    if SPECIAL_USER_IDS and message.author.id in SPECIAL_USER_IDS:
+    # Check if this user is the real Oreo or real Emz (Blossem)
+    is_oreo, is_emz = _flags_for_user(message.author)
+
+    # 🔹 Randomly respond to the real Emz (Blossem)
+    # 0.4 = 40% chance. Change if you want more/less.
+    if is_emz and random.random() < 0.4:
         return True
 
     content_lower = (message.content or "").lower()
 
-    # 2) Trigger words for auto-reply
+    # 🔹 Trigger words for anyone
     trigger_words = ["emz", "emilia", "blossem", "barrister"]
     if any(word in content_lower for word in trigger_words):
         return True
 
-    # 3) Existing rules: mention + help channels
+    # 🔹 Mentioned directly
     if bot.user and bot.user.mentioned_in(message):
         return True
 
+    # 🔹 Help channels (if configured)
     if HELP_CHANNEL_IDS and message.channel.id in HELP_CHANNEL_IDS:
         return True
 
     return False
-
 
 def _flags_for_user(user: discord.abc.User) -> tuple[bool, bool]:
     """
