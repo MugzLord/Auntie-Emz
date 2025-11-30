@@ -246,29 +246,30 @@ async def on_ready():
 def _should_respond_in_channel(message: discord.Message) -> bool:
     """
     Decide if Auntie Emz should respond to this message automatically.
-    - If bot is mentioned, always respond.
-    - If HELP_CHANNEL_IDS is configured and the message is in one of them, respond.
-    - If the message text contains 'emz' (any case), respond.
+    Triggers:
+    - If bot is mentioned.
+    - If HELP_CHANNEL_IDS contains the channel.
+    - If message contains: 'emz', 'emilia', or 'blossem' (any case).
     """
     if message.author.bot:
         return False
 
     content_lower = (message.content or "").lower()
 
-    # 🔹 New rule: if someone says "emz" anywhere, she replies
-    if "emz" in content_lower:
+    # 🔹 NEW: trigger words for auto-reply
+    trigger_words = ["emz", "emilia", "blossem"]
+
+    if any(word in content_lower for word in trigger_words):
         return True
 
-    # Existing rule: if she’s mentioned directly
+    # Existing rules:
     if bot.user and bot.user.mentioned_in(message):
         return True
 
-    # Existing rule: auto-help channels
     if HELP_CHANNEL_IDS and message.channel.id in HELP_CHANNEL_IDS:
         return True
 
     return False
-
 
 
 def _flags_for_user(user: discord.abc.User) -> tuple[bool, bool]:
