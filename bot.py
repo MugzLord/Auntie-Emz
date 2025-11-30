@@ -260,25 +260,25 @@ def _should_respond_in_channel(message: discord.Message) -> bool:
     Decide if Auntie Emz should respond to this message automatically.
     Triggers:
     - If the author is in SPECIAL_USER_IDS.
-    - If message contains: 'emz', 'emilia', or 'blossem' (any case).
+    - If message contains: 'emz', 'emilia', 'blossem', or 'barrister' (any case).
     - If bot is mentioned.
     - If HELP_CHANNEL_IDS contains the channel.
     """
     if message.author.bot:
         return False
 
-    # 🔹 1) Always respond to special users (by ID)
+    # 1) Always respond to special users (by ID)
     if SPECIAL_USER_IDS and message.author.id in SPECIAL_USER_IDS:
         return True
 
     content_lower = (message.content or "").lower()
 
-    # 🔹 2) Trigger words for auto-reply
-    trigger_words = ["emz", "emilia", "blossem"]
+    # 2) Trigger words for auto-reply
+    trigger_words = ["emz", "emilia", "blossem", "barrister"]
     if any(word in content_lower for word in trigger_words):
         return True
 
-    # 🔹 3) Existing rules
+    # 3) Existing rules: mention + help channels
     if bot.user and bot.user.mentioned_in(message):
         return True
 
