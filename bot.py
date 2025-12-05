@@ -157,17 +157,19 @@ def add_lab_coins(user_id: int, amount: int):
     conn.commit()
     conn.close()
 
-# ---------- Bot Lab wallet helpers (simple + safe) ----------
+# ---------- Bot Lab wallet helpers (match existing table with updated_at) ----------
 
 def ensure_lab_wallets_table():
     """Create table for Bot Lab wallets (used only for test coins)."""
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
+    # This matches the existing schema that has `updated_at` NOT NULL
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS lab_wallets (
             user_id    TEXT PRIMARY KEY,
-            coins      INTEGER NOT NULL DEFAULT 0
+            coins      INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT    NOT NULL
         )
         """
     )
@@ -183,12 +185,13 @@ def lab_has_claimed_auntie_drop(user_id: int) -> bool:
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
-    # Defensive: ensure table exists.
+    # Defensive: ensure table exists (no-op if it already does).
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS lab_wallets (
             user_id    TEXT PRIMARY KEY,
-            coins      INTEGER NOT NULL DEFAULT 0
+            coins      INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT    NOT NULL
         )
         """
     )
@@ -205,21 +208,25 @@ def lab_has_claimed_auntie_drop(user_id: int) -> bool:
 def lab_grant_eli_coins(user_id: int, amount: int) -> bool:
     """
     Add `amount` lab coins to the user's lab wallet.
+    Always updates `updated_at` to keep the NOT NULL constraint happy.
     Returns True on success, False on DB error.
     """
     try:
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
 
-        # Defensive: ensure table exists.
+        # Make sure the table exists with `updated_at`.
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS lab_wallets (
                 user_id    TEXT PRIMARY KEY,
-                coins      INTEGER NOT NULL DEFAULT 0
+                coins      INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT    NOT NULL
             )
             """
         )
+
+        now = datetime.utcnow().isoformat()
 
         # Upsert: if row exists, add; otherwise insert fresh.
         cur.execute(
@@ -230,13 +237,13 @@ def lab_grant_eli_coins(user_id: int, amount: int) -> bool:
 
         if row is None:
             cur.execute(
-                "INSERT INTO lab_wallets (user_id, coins) VALUES (?, ?)",
-                (str(user_id), amount),
+                "INSERT INTO lab_wallets (user_id, coins, updated_at) VALUES (?, ?, ?)",
+                (str(user_id), amount, now),
             )
         else:
             cur.execute(
-                "UPDATE lab_wallets SET coins = coins + ? WHERE user_id = ?",
-                (amount, str(user_id)),
+                "UPDATE lab_wallets SET coins = coins + ?, updated_at = ? WHERE user_id = ?",
+                (amount, now, str(user_id)),
             )
 
         conn.commit()
@@ -250,7 +257,6 @@ def lab_grant_eli_coins(user_id: int, amount: int) -> bool:
         except Exception:
             pass
         return False
-
 
 
 def init_tester_db():
