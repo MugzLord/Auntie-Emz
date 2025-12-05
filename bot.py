@@ -119,25 +119,24 @@ bot = commands.Bot(
 # ------------- Tester DB helpers -------------
 
 def init_tester_db():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS tester_activity (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id     TEXT NOT NULL,
-            bot_name    TEXT NOT NULL,
-            action_type TEXT NOT NULL,
-            channel_id  TEXT NOT NULL,
-            created_at  TEXT NOT NULL
-        )
-    """)
-    conn.commit()
-    conn.close()
-
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS tester_activity (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id     TEXT NOT NULL,
+                bot_name    TEXT NOT NULL,
+                action_type TEXT NOT NULL,
+                channel_id  TEXT NOT NULL,
+                created_at  TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+        conn.close()
         log.info("Tester DB initialised at %s", DB_PATH)
     except Exception as e:
         log.exception("Failed to initialise tester DB: %s", e)
-
 
 async def log_tester_if_test_channel(inter_or_ctx, bot_name: str, action_type: str):
     """
@@ -417,15 +416,11 @@ async def generate_auntie_emz_reply(
 
 
 # ------------- Discord events & commands -------------
-
-@bot.event
 @bot.event
 async def on_ready():
-    log.info(
-        "Auntie Emz is logged in as %s (%s)",
-        bot.user,
-        bot.user.id if bot.user else "unknown",
-    )
+    log.info("Auntie Emz logged in as %s (%s)", bot.user, bot.user.id)
+    init_tester_db()
+
     try:
         # Initialise tester DB
         init_tester_db()
