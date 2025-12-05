@@ -84,7 +84,6 @@ if SPECIAL_USER_IDS_ENV:
                 log.warning("Invalid user ID in SPECIAL_USER_IDS: %r", part)
 
 # Tester logging: DB path + tester channel IDs
-DB_PATH = os.getenv("DB_PATH", "tester_logs.db")
 
 TESTER_CHANNEL_IDS_ENV = os.getenv("TESTER_CHANNEL_IDS", "").strip()
 TESTER_CHANNEL_IDS: List[int] = []
@@ -419,22 +418,21 @@ async def generate_auntie_emz_reply(
 @bot.event
 async def on_ready():
     log.info("Auntie Emz logged in as %s (%s)", bot.user, bot.user.id)
-    init_tester_db()
 
+    # Initialise tester DB safely
     try:
-        # Initialise tester DB
         init_tester_db()
+        log.info("Tester DB ready.")
     except Exception as e:
         log.exception("Failed during tester DB init: %s", e)
 
+    # Clear application commands
     try:
-        # Clear ALL application commands (global)
         bot.tree.clear_commands(guild=None)
         await bot.tree.sync()
         log.info("Cleared all application commands for Auntie Emz.")
     except Exception as e:
         log.exception("Failed to clear app commands: %s", e)
-
 
 def _flags_for_user(user: discord.abc.User) -> tuple[bool, bool]:
     """
