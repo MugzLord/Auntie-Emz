@@ -25,6 +25,8 @@ log = logging.getLogger("auntie-emz")
 
 # ------------- Env & Config -------------
 DB_PATH = os.getenv("DB_PATH", "auntie_emz.db")
+ELI_DB_PATH = os.getenv("ELI_DB_PATH", "elihaus.db")
+
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 if not DISCORD_TOKEN:
@@ -95,6 +97,89 @@ if TESTER_CHANNEL_IDS_ENV:
                 TESTER_CHANNEL_IDS.append(int(part))
             except ValueError:
                 log.warning("Invalid channel ID in TESTER_CHANNEL_IDS: %r", part)
+
+
+
+# ------------- EliHaus coin faucet helpers -------------
+
+def ensure_faucet_table():
+    """
+    Tracks who already got the Auntie 50k so they can't claim twice.
+    Stored in the SAME DB_PATH as tester_activity and wallets.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS eli_faucet_claims (
+                user_id    TEXT PRIMARY KEY,
+                amount     INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+        conn.close()
+        log.info("eli_faucet_claims table ready.")
+    except Exception as e:
+        log.exception("Failed to ensure eli_faucet_claims table: %s", e)
+
+
+def has_claimed_faucet(user_id: int) -> bool:
+    """
+    Return True if this user already got the 50k faucet.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT 1 FROM eli_faucet_claims WHERE user_id = ?",
+            (str(user_id),),
+        )
+        row = cur.fetchone()
+        conn.close()
+        return row is not None
+    except Exception as e:
+        log.exception("Failed to read eli_faucet_claims: %s", e)
+        return False
+
+
+def grant_eli_coins(user_id: int, amount: int) -> bool:
+    """
+    Add coins to the user's EliHaus balance AND record the faucet claim.
+
+    NOTE: This assumes the EliHaus wallet table is:
+        wallets(user_id TEXT PRIMARY KEY, balance INTEGER NOT NULL)
+
+    If your table is named differently, change 'wallets' below.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+
+        # Upsert into wallets
+        cur.execute("""
+            INSERT INTO wallets (user_id, balance)
+            VALUES (?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET balance = balance + excluded.balance
+        """, (str(user_id), amount))
+
+        # Log the faucet claim
+        cur.execute("""
+            INSERT OR REPLACE INTO eli_faucet_claims (user_id, amount, created_at)
+            VALUES (?, ?, ?)
+        """, (
+            str(user_id),
+            int(amount),
+            datetime.utcnow().isoformat(timespec="seconds"),
+        ))
+
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        log.exception("Failed to grant EliHaus coins: %s", e)
+        return False
+
 
 # ------------- OpenAI client -------------
 
@@ -419,12 +504,13 @@ async def generate_auntie_emz_reply(
 async def on_ready():
     log.info("Auntie Emz logged in as %s (%s)", bot.user, bot.user.id)
 
-    # Initialise tester DB safely
+    # Initialise tester DB + faucet table safely
     try:
         init_tester_db()
-        log.info("Tester DB ready.")
+        ensure_faucet_table()
+        log.info("Tester DB and EliHaus faucet table ready.")
     except Exception as e:
-        log.exception("Failed during tester DB init: %s", e)
+        log.exception("Failed during DB init: %s", e)
 
     # Clear application commands
     try:
@@ -502,6 +588,44 @@ async def on_message(message: discord.Message):
     tester_tier = get_tester_tier(message.author.id, days=30)
     protected = is_protected_tester(message.author.id, days=30)
 
+    # ----- EliHaus 50k faucet (only in test channels + on request) -----
+    content_lower = (message.content or "").lower()
+
+    # phrases that mean they are asking for EliHaus coins
+    wants_coins = any(
+        phrase in content_lower
+        for phrase in [
+            "coins please",
+            "50k coins",
+            "eli coins",
+            "elihaus coins",
+            "can i get coins",
+            "auntie i need coins",
+        ]
+    )
+
+    in_test_channel = TESTER_CHANNEL_IDS and message.channel.id in TESTER_CHANNEL_IDS
+
+    if in_test_channel and wants_coins:
+        if has_claimed_faucet(message.author.id):
+            # already got their 50k once
+            await message.channel.send(
+                f"{message.author.mention}, you’ve already had your 50,000. "
+                f"Go lose that before begging for more."
+            )
+        else:
+            if grant_eli_coins(message.author.id, 50000):
+                await message.channel.send(
+                    f"{message.author.mention}, fine. **50,000 EliHaus coins** dropped into your wallet. "
+                    f"If you blow it in five minutes, that’s on you."
+                )
+            else:
+                await message.channel.send(
+                    f"{message.author.mention}, I tried to send coins and the system coughed. "
+                    f"Tell Mike his casino plumbing is blocked."
+                )
+
+    
     try:
         async with message.channel.typing():
             reply_text = await generate_auntie_emz_reply(
