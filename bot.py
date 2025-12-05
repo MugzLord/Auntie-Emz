@@ -647,7 +647,20 @@ async def on_message(message: discord.Message):
 
     # ----- Normal Auntie behaviour (OpenAI) -----
     try:
-        async with message.channel.typing():
+        try:
+            # Some channels don't give the bot permission to show typing.
+            async with message.channel.typing():
+                reply_text = await generate_auntie_emz_reply(
+                    author_display=author_display,
+                    channel_name=channel_name,
+                    content=message.content,
+                    is_oreo=is_oreo,
+                    is_emz=is_emz,
+                    tester_tier=tester_tier,
+                    is_protected_tester=protected,
+                )
+        except discord.Forbidden:
+            # No access to typing indicator → just generate the reply normally.
             reply_text = await generate_auntie_emz_reply(
                 author_display=author_display,
                 channel_name=channel_name,
@@ -657,9 +670,11 @@ async def on_message(message: discord.Message):
                 tester_tier=tester_tier,
                 is_protected_tester=protected,
             )
+
         if not reply_text.strip():
             # Slightly neutral fallback (no "love" etc.)
             reply_text = "Alright, I’m here if you need me."
+
         await message.reply(reply_text, mention_author=False)
     except Exception as e:
         log.exception("Error generating Auntie Emz reply: %s", e)
