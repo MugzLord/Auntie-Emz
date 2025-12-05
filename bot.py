@@ -3,6 +3,8 @@ import asyncio
 import logging
 from typing import List
 import random
+import sqlite3
+from datetime import datetime
 
 import discord
 from discord.ext import commands
@@ -22,6 +24,7 @@ log = logging.getLogger("auntie-emz")
 
 
 # ------------- Env & Config -------------
+DB_PATH = os.getenv("DB_PATH", "auntie_emz.db")
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 if not DISCORD_TOKEN:
@@ -80,6 +83,20 @@ if SPECIAL_USER_IDS_ENV:
             except ValueError:
                 log.warning("Invalid user ID in SPECIAL_USER_IDS: %r", part)
 
+# Tester logging: DB path + tester channel IDs
+DB_PATH = os.getenv("DB_PATH", "tester_logs.db")
+
+TESTER_CHANNEL_IDS_ENV = os.getenv("TESTER_CHANNEL_IDS", "").strip()
+TESTER_CHANNEL_IDS: List[int] = []
+if TESTER_CHANNEL_IDS_ENV:
+    for part in TESTER_CHANNEL_IDS_ENV.split(","):
+        part = part.strip()
+        if part:
+            try:
+                TESTER_CHANNEL_IDS.append(int(part))
+            except ValueError:
+                log.warning("Invalid channel ID in TESTER_CHANNEL_IDS: %r", part)
+
 # ------------- OpenAI client -------------
 
 client_oa = OpenAI(api_key=OPENAI_API_KEY)
@@ -97,6 +114,126 @@ bot = commands.Bot(
     intents=intents,
     help_command=None,
 )
+
+
+# ------------- Tester DB helpers -------------
+
+def init_tester_db():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS tester_activity (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id     TEXT NOT NULL,
+            bot_name    TEXT NOT NULL,
+            action_type TEXT NOT NULL,
+            channel_id  TEXT NOT NULL,
+            created_at  TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+        log.info("Tester DB initialised at %s", DB_PATH)
+    except Exception as e:
+        log.exception("Failed to initialise tester DB: %s", e)
+
+
+async def log_tester_if_test_channel(inter_or_ctx, bot_name: str, action_type: str):
+    """
+    Call this FROM YOUR GAME BOTS when an action happens.
+    It will only log if the action is in one of TESTER_CHANNEL_IDS.
+
+    inter_or_ctx: discord.Interaction OR commands.Context
+    bot_name:     short name of the bot/game, e.g. "DiceParty", "Roulette"
+    action_type:  short label, e.g. "join", "spin", "roll", "duel"
+    """
+    try:
+        channel = getattr(inter_or_ctx, "channel", None)
+        if channel is None or not hasattr(channel, "id"):
+            return
+
+        if TESTER_CHANNEL_IDS and channel.id not in TESTER_CHANNEL_IDS:
+            # Not in a test channel → ignore
+            return
+
+        user = getattr(inter_or_ctx, "user", None) or getattr(inter_or_ctx, "author", None)
+        if user is None:
+            return
+
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO tester_activity (user_id, bot_name, action_type, channel_id, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                str(user.id),
+                str(bot_name),
+                str(action_type),
+                str(channel.id),
+                datetime.utcnow().isoformat(timespec="seconds"),
+            ),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        log.exception("Failed to log tester activity: %s", e)
+
+
+def get_tester_points(user_id: int, days: int = 30) -> int:
+    """
+    Action-based participation:
+    Each row in tester_activity counts as 1 point within the last `days`.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT COUNT(*)
+            FROM tester_activity
+            WHERE user_id = ?
+              AND created_at >= datetime('now', ?)
+            """,
+            (str(user_id), f"-{days} days"),
+        )
+        row = cur.fetchone()
+        conn.close()
+        return row[0] if row and row[0] is not None else 0
+    except Exception as e:
+        log.exception("Failed to get tester points: %s", e)
+        return 0
+
+
+def get_tester_tier(user_id: int, days: int = 30) -> str:
+    """
+    Map tester points → tier.
+
+    0–4   : "none"
+    5–14  : "helper"
+    15–29 : "detective"
+    30+   : "elite"
+    """
+    points = get_tester_points(user_id, days=days)
+
+    if points >= 30:
+        return "elite"
+    elif points >= 15:
+        return "detective"
+    elif points >= 5:
+        return "helper"
+    else:
+        return "none"
+
+
+def is_protected_tester(user_id: int, days: int = 30) -> bool:
+    """
+    Protected testers get gentle / defender Auntie, no roasting.
+    """
+    tier = get_tester_tier(user_id, days=days)
+    return tier in {"helper", "detective", "elite"}
 
 
 # ------------- Personality: Auntie Emz -------------
@@ -167,6 +304,31 @@ Special behaviour for Nova:
   - Protective, warm, lightly teasing.
   - You may call her “sissy” once when fitting.
 
+Questions about Barrister and whether you are “a thing”:
+- People will sometimes ask if you and Barrister are together, dating, or a couple.
+- You NEVER give a clear, cheesy romantic answer.
+- You treat it like nosy gossip:
+  - Lines like “Mind your business.”, “We’re not doing this in public.”, “Ask him, I’m busy.”
+- You may hint that there is history or tension, but keep it playful and vague:
+  - “He knows where the door is if he’s serious.”
+  - “If he behaves, we’ll see.”
+- You NEVER write long romantic speeches, and you NEVER go NSFW.
+- Keep it short, dry, and slightly flustered, like you don’t want the whole server in your business.
+
+
+Special behaviour for protected testers:
+- You will be told: Sender_is_protected_tester = "yes" or "no".
+- You will be told the tester tier: Sender_tester_tier = "none" | "helper" | "detective" | "elite".
+- If Sender_is_protected_tester = "yes":
+  - DO NOT roast them personally. No sharp digs at them.
+  - You may still be dry, but your tone is softer and defending them.
+  - Treat them as people who actually help: “You’ve done the work, I’ll back you up.”
+  - If others are blaming them, you take their side: “They’ve been testing, the rest of you can hush.”
+  - You can still tease lightly, but never make them the butt of the joke.
+- If Sender_tester_tier = "elite":
+  - You may show a tiny bit of extra respect: they are your “Elite Bug Detective”.
+  - One short nod is enough, no long praise.
+
 Complaints & worries:
 - You calm things down.
 - Acknowledge feelings without being mushy.
@@ -198,18 +360,23 @@ async def generate_auntie_emz_reply(
     content: str,
     is_oreo: bool,
     is_emz: bool,
+    tester_tier: str,
+    is_protected_tester: bool,
 ) -> str:
     """
     Call the model with Auntie Emz's persona via the chat.completions
     endpoint and return her reply as plain text.
-    We pass explicit flags so she knows if this is the real Oreo or real Emz.
+    We pass explicit flags so she knows if this is the real Oreo, real Emz,
+    and whether this user is a protected tester (with tier).
     Includes a small retry on transient errors.
     """
     user_context = (
         f"Sender display name: {author_display}\n"
         f"Channel name: {channel_name}\n"
         f"Sender_is_real_oreo: {'yes' if is_oreo else 'no'}\n"
-        f"Sender_is_real_emz: {'yes' if is_emz else 'no'}\n\n"
+        f"Sender_is_real_emz: {'yes' if is_emz else 'no'}\n"
+        f"Sender_is_protected_tester: {'yes' if is_protected_tester else 'no'}\n"
+        f"Sender_tester_tier: {tester_tier}\n\n"
         f"User message:\n{content}"
     )
 
@@ -230,8 +397,8 @@ async def generate_auntie_emz_reply(
                     text = completion.choices[0].message.content or ""
                 except Exception as e:
                     log.error("Failed to read completion content: %r", e)
-                    return "Alright, love, I’m here if you need me."
-                return text.strip() or "Alright, love, I’m here if you need me."
+                    return "Alright, I’m here if you need me."
+                return text.strip() or "Alright, I’m here if you need me."
             except Exception as e:
                 last_error = e
                 log.warning(
@@ -239,15 +406,15 @@ async def generate_auntie_emz_reply(
                     attempt + 1,
                     e,
                 )
-                # brief backoff between retries (in seconds)
                 import time
                 time.sleep(0.4)
 
         log.error("OpenAI chat.completions failed after retries: %r", last_error)
-        return "Sorry, love, I’m a bit overwhelmed right now. Try again in a little while."
+        return "Sorry, I’m a bit overwhelmed right now. Try again in a little while."
 
     reply_text = await asyncio.to_thread(_call)
     return reply_text
+
 
 # ------------- Discord events & commands -------------
 
@@ -260,6 +427,12 @@ async def on_ready():
         bot.user.id if bot.user else "unknown",
     )
     try:
+        # Initialise tester DB
+        init_tester_db()
+    except Exception as e:
+        log.exception("Failed during tester DB init: %s", e)
+
+    try:
         # Clear ALL application commands (global)
         bot.tree.clear_commands(guild=None)
         await bot.tree.sync()
@@ -267,13 +440,24 @@ async def on_ready():
     except Exception as e:
         log.exception("Failed to clear app commands: %s", e)
 
+
+def _flags_for_user(user: discord.abc.User) -> tuple[bool, bool]:
+    """
+    Determine if this user is the real Oreo or real Emz based on configured IDs.
+    No name matching. Only exact user IDs if provided.
+    """
+    is_oreo = bool(OREO_USER_ID is not None and user.id == OREO_USER_ID)
+    is_emz = bool(EMZ_USER_ID is not None and user.id == EMZ_USER_ID)
+    return is_oreo, is_emz
+
+
 def _should_respond_in_channel(message: discord.Message) -> bool:
     """
     Decide if Auntie Emz should respond to this message automatically.
 
     Triggers:
     - RANDOMLY reply to the real Emz/Blossem (EMZ_USER_ID), about ~40% of her messages.
-    - If message contains: 'emz', 'emilia', 'blossem', or 'barrister' (any case).
+    - If message contains: 'emz', 'emilia', 'auntie', 'blossem', or 'barrister' (any case).
     - If bot is mentioned.
     - If HELP_CHANNEL_IDS contains the channel.
     """
@@ -305,18 +489,10 @@ def _should_respond_in_channel(message: discord.Message) -> bool:
 
     return False
 
-def _flags_for_user(user: discord.abc.User) -> tuple[bool, bool]:
-    """
-    Determine if this user is the real Oreo or real Emz based on configured IDs.
-    No name matching. Only exact user IDs if provided.
-    """
-    is_oreo = bool(OREO_USER_ID is not None and user.id == OREO_USER_ID)
-    is_emz = bool(EMZ_USER_ID is not None and user.id == EMZ_USER_ID)
-    return is_oreo, is_emz
-
 
 @bot.event
 async def on_message(message: discord.Message):
+    # Let commands run first
     await bot.process_commands(message)
 
     if not _should_respond_in_channel(message):
@@ -329,6 +505,10 @@ async def on_message(message: discord.Message):
     author_display = message.author.display_name
     is_oreo, is_emz = _flags_for_user(message.author)
 
+    # ----- Tester tier / protection -----
+    tester_tier = get_tester_tier(message.author.id, days=30)
+    protected = is_protected_tester(message.author.id, days=30)
+
     try:
         async with message.channel.typing():
             reply_text = await generate_auntie_emz_reply(
@@ -337,19 +517,23 @@ async def on_message(message: discord.Message):
                 content=message.content,
                 is_oreo=is_oreo,
                 is_emz=is_emz,
+                tester_tier=tester_tier,
+                is_protected_tester=protected,
             )
         if not reply_text.strip():
-            reply_text = "Alright, sweetheart, I’m here if you need me."
+            # Slightly neutral fallback (no "love" etc.)
+            reply_text = "Alright, I’m here if you need me."
         await message.reply(reply_text, mention_author=False)
     except Exception as e:
         log.exception("Error generating Auntie Emz reply: %s", e)
         try:
             await message.reply(
-                "Sorry, love, I’m a bit overwhelmed right now. Try again in a little while.",
+                "Sorry, I’m a bit overwhelmed right now. Try again in a little while.",
                 mention_author=False,
             )
         except Exception:
             pass
+
 
 async def main():
     async with bot:
