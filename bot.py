@@ -592,30 +592,40 @@ async def on_message(message: discord.Message):
     in_test_channel = TESTER_CHANNEL_IDS and message.channel.id in TESTER_CHANNEL_IDS
 
     if wants_coins:
-        if in_test_channel:
-            # Only allow the faucet inside bot-lab / tester channels
-            if lab_has_claimed_auntie_drop(message.author.id):
-                await message.channel.send(
-                    f"{message.author.mention}, you’ve already had your 50,000 lab coins. "
-                    f"Try losing those before begging for more."
-                )
-            else:
-                if lab_grant_eli_coins(message.author.id, 50000):
+        try:
+            if in_test_channel:
+                # Only allow the faucet inside bot-lab / tester channels
+                if lab_has_claimed_auntie_drop(message.author.id):
                     await message.channel.send(
-                        f"{message.author.mention}, fine. **50,000 lab EliHaus coins** dropped into your test wallet. "
-                        f"They work here, not in the real casino."
+                        f"{message.author.mention}, you’ve already had your 50,000 lab coins. "
+                        f"Try losing those before begging for more."
                     )
                 else:
-                    await message.channel.send(
-                        f"{message.author.mention}, I tried to send coins and the system coughed. "
-                        f"Tell Mike his casino plumbing is blocked."
-                    )
-        else:
-            # They are asking for coins outside bot-lab → hard no
-            await message.channel.send(
-                f"{message.author.mention}, I’m not handing out test coins in this channel. "
-                f"Go to the lab if you want freebies."
-            )
+                    if lab_grant_eli_coins(message.author.id, 50000):
+                        await message.channel.send(
+                            f"{message.author.mention}, fine. **50,000 lab EliHaus coins** dropped into your test wallet. "
+                            f"They work here, not in the real casino."
+                        )
+                    else:
+                        await message.channel.send(
+                            f"{message.author.mention}, I tried to send coins and the system coughed. "
+                            f"Tell Mike his casino plumbing is blocked."
+                        )
+            else:
+                # They are asking for coins outside bot-lab → hard no
+                await message.channel.send(
+                    f"{message.author.mention}, I’m not handing out test coins in this channel. "
+                    f"Go to the lab if you want freebies."
+                )
+        except Exception as e:
+            log.exception("Error in lab faucet: %s", e)
+            try:
+                await message.channel.send(
+                    f"{message.author.mention}, I tried to drop coins but the lab faucet jammed. "
+                    f"Tell Mike to check the pipes."
+                )
+            except Exception:
+                pass
         # ⛔ stop here so she doesn't also fire OpenAI
         return
 
