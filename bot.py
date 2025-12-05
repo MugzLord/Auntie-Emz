@@ -157,7 +157,7 @@ def add_lab_coins(user_id: int, amount: int):
     conn.commit()
     conn.close()
 
-# ---------- Bot Lab wallet helpers ----------
+# ---------- Bot Lab wallet helpers (simple + safe) ----------
 
 def ensure_lab_wallets_table():
     """Create table for Bot Lab wallets (used only for test coins)."""
@@ -166,10 +166,8 @@ def ensure_lab_wallets_table():
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS lab_wallets (
-            user_id       TEXT PRIMARY KEY,
-            coins         INTEGER NOT NULL DEFAULT 0,
-            first_claim_at TEXT,
-            updated_at    TEXT NOT NULL
+            user_id    TEXT PRIMARY KEY,
+            coins      INTEGER NOT NULL DEFAULT 0
         )
         """
     )
@@ -179,83 +177,66 @@ def ensure_lab_wallets_table():
 
 def lab_has_claimed_auntie_drop(user_id: int) -> bool:
     """
-    Return True if this user has *already* claimed the 50k lab faucet once.
-    We treat the existence of a row with first_claim_at set as "already claimed".
+    Return True if this user has already claimed the faucet once.
+    We treat 'coins > 0' as 'already claimed'.
     """
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
-    # Be defensive: make sure table exists even if on_ready didn't run yet.
+    # Defensive: ensure table exists.
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS lab_wallets (
-            user_id       TEXT PRIMARY KEY,
-            coins         INTEGER NOT NULL DEFAULT 0,
-            first_claim_at TEXT,
-            updated_at    TEXT NOT NULL
+            user_id    TEXT PRIMARY KEY,
+            coins      INTEGER NOT NULL DEFAULT 0
         )
         """
     )
 
     cur.execute(
-        "SELECT first_claim_at FROM lab_wallets WHERE user_id = ? LIMIT 1",
+        "SELECT coins FROM lab_wallets WHERE user_id = ? LIMIT 1",
         (str(user_id),),
     )
     row = cur.fetchone()
     conn.close()
-    return row is not None and row[0] is not None
+    return row is not None and row[0] > 0
 
 
 def lab_grant_eli_coins(user_id: int, amount: int) -> bool:
     """
     Add `amount` lab coins to the user's lab wallet.
-    If it's the first time, set first_claim_at; otherwise only bump coins/updated_at.
     Returns True on success, False on DB error.
     """
     try:
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
 
-        # Again: defensive ensure in case something ran out of order.
+        # Defensive: ensure table exists.
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS lab_wallets (
-                user_id       TEXT PRIMARY KEY,
-                coins         INTEGER NOT NULL DEFAULT 0,
-                first_claim_at TEXT,
-                updated_at    TEXT NOT NULL
+                user_id    TEXT PRIMARY KEY,
+                coins      INTEGER NOT NULL DEFAULT 0
             )
             """
         )
 
-        now = datetime.utcnow().isoformat()
-
-        # If user already exists, just add coins; if not, insert as first claim.
+        # Upsert: if row exists, add; otherwise insert fresh.
         cur.execute(
-            "SELECT first_claim_at FROM lab_wallets WHERE user_id = ? LIMIT 1",
+            "SELECT coins FROM lab_wallets WHERE user_id = ? LIMIT 1",
             (str(user_id),),
         )
         row = cur.fetchone()
 
         if row is None:
-            # First time: insert with first_claim_at
             cur.execute(
-                """
-                INSERT INTO lab_wallets (user_id, coins, first_claim_at, updated_at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (str(user_id), amount, now, now),
+                "INSERT INTO lab_wallets (user_id, coins) VALUES (?, ?)",
+                (str(user_id), amount),
             )
         else:
-            # Already has a wallet: just add coins and update timestamp
             cur.execute(
-                """
-                UPDATE lab_wallets
-                SET coins = coins + ?,
-                    updated_at = ?
-                WHERE user_id = ?
-                """,
-                (amount, now, str(user_id)),
+                "UPDATE lab_wallets SET coins = coins + ? WHERE user_id = ?",
+                (amount, str(user_id)),
             )
 
         conn.commit()
@@ -269,6 +250,7 @@ def lab_grant_eli_coins(user_id: int, amount: int) -> bool:
         except Exception:
             pass
         return False
+
 
 
 def init_tester_db():
