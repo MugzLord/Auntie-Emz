@@ -140,6 +140,38 @@ bot = commands.Bot(
 
 
 # ------------- Tester DB helpers -------------
+def add_lab_coins(user_id: int, amount: int):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO lab_wallets (user_id, coins, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(user_id)
+        DO UPDATE SET
+            coins = coins + excluded.coins,
+            updated_at = excluded.updated_at
+        """,
+        (str(user_id), amount, datetime.utcnow().isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+def ensure_lab_wallets_table():
+    """Create table for Bot Lab wallets (coins used in the lab)."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS lab_wallets (
+            user_id    TEXT PRIMARY KEY,
+            coins      INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT    NOT NULL
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
 
 def init_tester_db():
     try:
@@ -468,6 +500,21 @@ def _flags_for_user(user: discord.abc.User) -> tuple[bool, bool]:
     is_emz = bool(EMZ_USER_ID is not None and user.id == EMZ_USER_ID)
     return is_oreo, is_emz
 
+def ensure_lab_wallets_table():
+    """Create table for Bot Lab wallets (coins used in the lab)."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS lab_wallets (
+            user_id    TEXT PRIMARY KEY,
+            coins      INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT    NOT NULL
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
 
 def _should_respond_in_channel(message: discord.Message) -> bool:
     """
