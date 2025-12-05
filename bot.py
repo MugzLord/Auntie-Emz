@@ -630,6 +630,39 @@ def _should_respond_in_channel(message: discord.Message) -> bool:
 
     return False
 
+def _wants_coins_phrase(text: str | None) -> bool:
+    if not text:
+        return False
+
+    text = text.lower().strip()
+
+    # must at least contain the word "coin"
+    if "coin" not in text:
+        return False
+
+    # allow just "coin" / "coins"
+    if text in {"coin", "coins"}:
+        return True
+
+    # bits that mean they're asking for coins
+    request_bits = [
+        "please",
+        "pls",
+        "plz",
+        "need",
+        "want",
+        "give me",
+        "send me",
+        "can i have",
+        "can i get",
+        "may i have",
+        "may i get",
+        "spare",
+        "top me up",
+    ]
+
+    return any(bit in text for bit in request_bits)
+
 
 @bot.event
 async def on_message(message: discord.Message):
