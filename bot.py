@@ -156,26 +156,14 @@ def add_lab_coins(user_id: int, amount: int):
     )
     conn.commit()
     conn.close()
-
-# ---------- Bot Lab wallet helpers (match existing table with updated_at) ----------
-
-def ensure_lab_wallets_table():
-    """Create table for Bot Lab wallets (used only for test coins)."""
+    
+def reset_lab_wallets_schema():
+    """One-time reset for the lab_wallets table so schema matches the code."""
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    # This matches the existing schema that has `updated_at` NOT NULL
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS lab_wallets (
-            user_id    TEXT PRIMARY KEY,
-            coins      INTEGER NOT NULL DEFAULT 0,
-            updated_at TEXT    NOT NULL
-        )
-        """
-    )
+    cur.execute("DROP TABLE IF EXISTS lab_wallets")
     conn.commit()
     conn.close()
-
 
 def lab_has_claimed_auntie_drop(user_id: int) -> bool:
     """
@@ -564,10 +552,12 @@ async def on_ready():
     # Initialise tester DB + lab wallet safely
     try:
         init_tester_db()
-        ensure_lab_wallets_table()
+        reset_lab_wallets_schema()      # 👈 wipe old broken schema
+        ensure_lab_wallets_table()      # 👈 recreate table with correct schema
         log.info("Tester DB and lab wallet tables ready.")
     except Exception as e:
         log.exception("Failed during DB init: %s", e)
+
 
     # Clear application commands
     try:
