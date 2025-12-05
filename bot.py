@@ -157,21 +157,119 @@ def add_lab_coins(user_id: int, amount: int):
     conn.commit()
     conn.close()
 
+# ---------- Bot Lab wallet helpers ----------
+
 def ensure_lab_wallets_table():
-    """Create table for Bot Lab wallets (coins used in the lab)."""
+    """Create table for Bot Lab wallets (used only for test coins)."""
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS lab_wallets (
-            user_id    TEXT PRIMARY KEY,
-            coins      INTEGER NOT NULL DEFAULT 0,
-            updated_at TEXT    NOT NULL
+            user_id       TEXT PRIMARY KEY,
+            coins         INTEGER NOT NULL DEFAULT 0,
+            first_claim_at TEXT,
+            updated_at    TEXT NOT NULL
         )
         """
     )
     conn.commit()
     conn.close()
+
+
+def lab_has_claimed_auntie_drop(user_id: int) -> bool:
+    """
+    Return True if this user has *already* claimed the 50k lab faucet once.
+    We treat the existence of a row with first_claim_at set as "already claimed".
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    # Be defensive: make sure table exists even if on_ready didn't run yet.
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS lab_wallets (
+            user_id       TEXT PRIMARY KEY,
+            coins         INTEGER NOT NULL DEFAULT 0,
+            first_claim_at TEXT,
+            updated_at    TEXT NOT NULL
+        )
+        """
+    )
+
+    cur.execute(
+        "SELECT first_claim_at FROM lab_wallets WHERE user_id = ? LIMIT 1",
+        (str(user_id),),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row is not None and row[0] is not None
+
+
+def lab_grant_eli_coins(user_id: int, amount: int) -> bool:
+    """
+    Add `amount` lab coins to the user's lab wallet.
+    If it's the first time, set first_claim_at; otherwise only bump coins/updated_at.
+    Returns True on success, False on DB error.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+
+        # Again: defensive ensure in case something ran out of order.
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS lab_wallets (
+                user_id       TEXT PRIMARY KEY,
+                coins         INTEGER NOT NULL DEFAULT 0,
+                first_claim_at TEXT,
+                updated_at    TEXT NOT NULL
+            )
+            """
+        )
+
+        now = datetime.utcnow().isoformat()
+
+        # If user already exists, just add coins; if not, insert as first claim.
+        cur.execute(
+            "SELECT first_claim_at FROM lab_wallets WHERE user_id = ? LIMIT 1",
+            (str(user_id),),
+        )
+        row = cur.fetchone()
+
+        if row is None:
+            # First time: insert with first_claim_at
+            cur.execute(
+                """
+                INSERT INTO lab_wallets (user_id, coins, first_claim_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (str(user_id), amount, now, now),
+            )
+        else:
+            # Already has a wallet: just add coins and update timestamp
+            cur.execute(
+                """
+                UPDATE lab_wallets
+                SET coins = coins + ?,
+                    updated_at = ?
+                WHERE user_id = ?
+                """,
+                (amount, now, str(user_id)),
+            )
+
+        conn.commit()
+        conn.close()
+        return True
+
+    except Exception as e:
+        log.exception("Error in lab_grant_eli_coins: %s", e)
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return False
+
 
 def init_tester_db():
     try:
