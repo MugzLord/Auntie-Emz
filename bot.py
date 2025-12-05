@@ -98,6 +98,27 @@ if TESTER_CHANNEL_IDS_ENV:
             except ValueError:
                 log.warning("Invalid channel ID in TESTER_CHANNEL_IDS: %r", part)
 
+#---eh help===
+ELIHAUS_PUBLIC_HELP = [
+    "**Core coins**",
+    "/eh_join – join EliHaus (starter coins)",
+    "/eh_daily – claim daily coins",
+    "/eh_weekly – claim weekly coins",
+    "/eh_balance – check balance",
+
+    "",
+    "**Games**",
+    "/eh_buyticket – buy lotto tickets",
+    "/eh_lotto – see lotto status",
+    "/eh_dice_duel – 1v1 dice duel (stake coins vs someone)",
+    "/eh_dice_party – group dice game (everyone stakes; highest roll wins)",
+    "/slots_panel – jump link to the Slots panel",
+
+    "",
+    "**Prizes / WL**",
+    "/eh_withdraw – request WL gifts using your coins",
+    "/eh_leaderboard – view top balances / roulette net",
+]
 
 # ------------- OpenAI client -------------
 
@@ -509,7 +530,6 @@ async def on_message(message: discord.Message):
     # ----- EliHaus 50k lab faucet (only in bot-lab / tester channels + on request) -----
     content_lower = (message.content or "").lower()
 
-    # phrases that mean they are asking for EliHaus coins
     wants_coins = any(
         phrase in content_lower
         for phrase in [
@@ -549,8 +569,36 @@ async def on_message(message: discord.Message):
                 f"{message.author.mention}, I’m not handing out test coins in this channel. "
                 f"Go to the lab if you want freebies."
             )
+        # ⛔ stop here so she doesn't also fire OpenAI
+        return
 
-    
+    # ----- Auntie Emz: EliHaus commands / how-to (no OpenAI) -----
+    asks_how = any(
+        phrase in content_lower
+        for phrase in [
+            "how to play",
+            "how do i play",
+            "how do i use",
+            "teach me",
+            "what are the commands",
+            "elihaus commands",
+            "elihaus help",
+            "help me auntie",
+        ]
+    )
+
+    mentions_auntie = any(word in content_lower for word in ["auntie", "emz", "auntie emz"])
+
+    if mentions_auntie and asks_how:
+        help_msg = "\n".join(ELIHAUS_PUBLIC_HELP)
+        await message.reply(
+            f"Here, before you get yourself confused:\n\n{help_msg}",
+            mention_author=False,
+        )
+        # again, don't call OpenAI for this
+        return
+
+    # ----- Normal Auntie behaviour (OpenAI) -----
     try:
         async with message.channel.typing():
             reply_text = await generate_auntie_emz_reply(
