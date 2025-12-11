@@ -689,33 +689,6 @@ def _wants_coins_phrase(text: str | None) -> bool:
 
     return any(bit in text for bit in request_bits)
 
-messages = [{"role": "system", "content": AUNTIE_SYSTEM_PROMPT}]
-
-if message.author.id in JURYE_IDS:
-    messages.append({
-        "role": "system",
-        "content": (
-            "Context: You are currently talking directly to Jurye, "
-            "Mike’s most willing bot tester, who always volunteers to test new features. "
-            "Be playfully appreciative and gently roast everyone else for not helping as much."
-        )
-    })
-
-if message.author.id in LILIT_IDS:
-    messages.append({
-        "role": "system",
-        "content": (
-            "Context: You are currently talking directly to Lilit, "
-            "who is quiet but still joins in bot testing to help. "
-            "Use softer, low-key banter: appreciative, gentle teasing, not loud or dramatic."
-        )
-    })
-
-messages.append({
-    "role": "user",
-    "content": message.content
-})
-
 @bot.event
 async def on_message(message: discord.Message):
     # Let commands run first
